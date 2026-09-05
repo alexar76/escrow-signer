@@ -1,0 +1,49 @@
+# Reverse SSH tunnel: the HUB host reaches the signer at 127.0.0.1:9500 without the signer
+# ever being exposed to a network interface.
+#
+# Install on the HUB host (factory-host), not on the signer host:
+#   cp deploy/escrow-signer-tunnel.service /etc/systemd/system/
+#   systemctl daemon-reload && systemctl enable --now escrow-signer-tunnel
+#
+# TWO local binds, and the second one is the load-bearing one. The Hub runs in its own network
+# namespace, so `127.0.0.1` inside the container is not the host's loopback — a tunnel bound only
+# to 127.0.0.1 is reachable by an operator on the host and by nothing the Hub can dial. The
+# second bind puts the same forward on the aicom_aicom_net gateway, which is the address the
+# container can reach, so the Hub uses:
+#
+#     AIMARKET_ESCROW_SIGNER_URL=http://172.18.0.1:9500/sign
+#
+# Being on the bridge gateway means every container on that network can open the port. That is
+# accepted deliberately rather than papered over: the bearer token is what separates the Hub
+# from its neighbours there, and the signer's policy is what makes a stolen token worth one
+# canonical debitChannel rather than a drained key. `host.docker.internal:host-gateway` would
+# resolve to this same address and buy nothing extra.
+#
+# The signer host's authorized_keys still restricts this key to `permitopen="127.0.0.1:9500"` —
+# that limits the tunnel's DESTINATION on the remote side, which is unchanged.
+[Unit]
+Description=SSH tunnel from the hub host to the escrow policy signer
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=root
+# -N no shell, -T no tty: this connection exists to forward one port and nothing else.
+# ExitOnForwardFailure makes a refused forward a unit failure instead of a silent no-op —
+# without it the tunnel "starts" and every settlement quietly fails to reach the signer.
+ExecStart=/usr/bin/ssh -N -T \
+  -o ExitOnForwardFailure=yes \
+  -o ServerAliveInterval=15 -o ServerAliveCountMax=3 \
+  -o StrictHostKeyChecking=yes \
+  -o IdentitiesOnly=yes -i /root/.ssh/id_ed25519_signer_tunnel \
+  -L 127.0.0.1:9500:127.0.0.1:9500 \
+  -L 172.18.0.1:9500:127.0.0.1:9500 \
+  root@skopos-host
+Restart=always
+RestartSec=5
+# A dead tunnel presents to the hub as "signer unreachable", which is a refusal, not a
+# double spend — so restarting hard is safe.
+StartLimitBurst=0
+
+[Install]
+WantedBy=multi-user.target

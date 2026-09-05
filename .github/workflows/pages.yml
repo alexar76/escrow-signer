@@ -1,0 +1,48 @@
+name: Pages — landing
+
+# Publish docs/landing/ → https://alexar76.github.io/escrow-signer/
+on:
+  push:
+    branches: [main]
+    paths:
+      - docs/landing/**
+      - .github/workflows/pages.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages-escrow-signer
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Ensure Pages source is GitHub Actions
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --method PUT "/repos/${{ github.repository }}/pages" \
+            -f build_type=workflow
+
+      - name: Prepare landing artifact
+        run: touch docs/landing/.nojekyll
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/landing
+
+      - id: deployment
+        uses: actions/deploy-pages@v4
