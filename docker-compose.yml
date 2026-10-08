@@ -1,0 +1,24 @@
+# The signer runs on a host that is NOT the hub host. That is the entire point: if it shared
+# a machine with the hub, an attacker with docker access would own both, and "the key never
+# enters the hub process" would be a sentence rather than a boundary.
+services:
+  escrow-signer:
+    build: .
+    image: escrow-signer:0.1.0
+    container_name: escrow-signer
+    restart: unless-stopped
+    env_file: [.env]
+    # Loopback publication only. The hub reaches this through an SSH reverse tunnel; there
+    # is no path from the internet to this port.
+    ports: ["127.0.0.1:9500:9500"]
+    volumes: ["escrow_signer_data:/var/lib/escrow-signer"]
+    read_only: true
+    tmpfs: ["/tmp"]
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
+
+volumes:
+  escrow_signer_data:
