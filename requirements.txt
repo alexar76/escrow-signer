@@ -1,0 +1,4 @@
+# One dependency, chosen because the hub's own `env` signer already depends on it: a signer
+# that introduces a new crypto library adds supply-chain surface to the one process in the
+# ecosystem that holds a hot key.
+eth-account>=0.13,<0.15
