@@ -9,7 +9,7 @@
 
 <!-- aicom-readme-badges -->
 <p align="center">
-  <a href="https://github.com/alexar76/escrow-signer/actions/workflows/ci.yml"><img src="https://raw.githubusercontent.com/alexar76/escrow-signer/refs/heads/main/docs/badges/ci.svg" alt="CI" /></a>
+  <a href="https://github.com/alexar76/escrow-signer/actions/workflows/ci.yml"><img src="https://github.com/alexar76/escrow-signer/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <a href="https://alexar76.github.io/escrow-signer/"><img src="https://img.shields.io/badge/landing-GitHub%20Pages-9c70ff" alt="Landing" /></a>
   <img src="https://img.shields.io/badge/allowed%20selectors-1-8d83ff" alt="One allowed selector" />
   <img src="https://img.shields.io/badge/chain-Base%208453-0052FF" alt="Base mainnet" />
