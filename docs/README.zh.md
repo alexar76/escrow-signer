@@ -54,6 +54,10 @@ curl -s localhost:9500/health     # {"ok":true,"ready":true,...}
 ```
 cp deploy/escrow-signer-tunnel.service /etc/systemd/system/
 systemctl enable --now escrow-signer-tunnel
+# Docker 网桥上的隧道端口只对 hub 容器开放
+install -m 755 deploy/signer-hub-only.sh /usr/local/sbin/
+cp deploy/signer-hub-only.service deploy/signer-hub-only.timer /etc/systemd/system/
+systemctl daemon-reload && systemctl enable --now signer-hub-only.timer
 
 cd /root/claudecode/aicom && ./scripts/deploy_hub_rebuild.sh --no-build \
   --set AIMARKET_ESCROW_SUBMIT_STRATEGY=external \

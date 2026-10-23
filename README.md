@@ -85,6 +85,10 @@ Then, on the **hub** host:
 ```
 cp deploy/escrow-signer-tunnel.service /etc/systemd/system/
 systemctl enable --now escrow-signer-tunnel
+# only the hub container may open the forward (the tunnel binds the Docker bridge)
+install -m 755 deploy/signer-hub-only.sh /usr/local/sbin/
+cp deploy/signer-hub-only.service deploy/signer-hub-only.timer /etc/systemd/system/
+systemctl daemon-reload && systemctl enable --now signer-hub-only.timer
 curl -s localhost:9500/health     # the tunnel, not the service
 
 cd /root/claudecode/aicom && ./scripts/deploy_hub_rebuild.sh --no-build \

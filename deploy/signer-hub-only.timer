@@ -1,0 +1,10 @@
+[Unit]
+Description=Re-apply the escrow signer firewall (the hub's address changes when it is recreated)
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=60s
+AccuracySec=5s
+
+[Install]
+WantedBy=timers.target

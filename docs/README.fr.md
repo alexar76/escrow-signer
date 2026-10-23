@@ -64,6 +64,10 @@ Puis, sur l'hôte du **Hub** :
 ```
 cp deploy/escrow-signer-tunnel.service /etc/systemd/system/
 systemctl enable --now escrow-signer-tunnel
+# seul le conteneur du hub peut ouvrir le port du tunnel sur le pont Docker
+install -m 755 deploy/signer-hub-only.sh /usr/local/sbin/
+cp deploy/signer-hub-only.service deploy/signer-hub-only.timer /etc/systemd/system/
+systemctl daemon-reload && systemctl enable --now signer-hub-only.timer
 
 cd /root/claudecode/aicom && ./scripts/deploy_hub_rebuild.sh --no-build \
   --set AIMARKET_ESCROW_SUBMIT_STRATEGY=external \

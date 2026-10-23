@@ -1,0 +1,7 @@
+[Unit]
+Description=Let only the hub container reach the escrow signer forward (KI-11)
+After=docker.service escrow-signer-tunnel.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/signer-hub-only.sh
