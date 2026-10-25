@@ -138,10 +138,10 @@ class Settings:
     bind_host: str
     bind_port: int
     sign_path: str
-    token: str
-    private_key: str
+    token: str = field(repr=False)
+    private_key: str = field(repr=False)
     db_path: str
-    rpc_urls: tuple
+    rpc_urls: tuple = field(repr=False)
     rpc_timeout_s: float
     priority_fee_wei: int
     max_fee_wei_ceiling: int

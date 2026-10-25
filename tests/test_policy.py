@@ -3,6 +3,8 @@ actually matters — that nothing was signed and nothing was broadcast."""
 
 from __future__ import annotations
 
+
+
 import json
 
 import pytest
@@ -510,3 +512,13 @@ def test_the_chain_still_verifies_after_a_revive(signer):
     signer.rpc.simulate_error = None
     post(signer, envelope(call))
     signer.ledger.verify_chains()   # raises if the revive broke either chain
+
+
+def test_settings_representation_never_reveals_signing_credentials(signer):
+    from dataclasses import replace
+    settings = replace(signer.s, private_key="repr-only-private-key", token="repr-only-bearer",
+                       rpc_urls=("https://rpc.test/repr-only-rpc-credential",))
+    printed = repr(settings)
+    assert "repr-only-private-key" not in printed
+    assert "repr-only-bearer" not in printed
+    assert "repr-only-rpc-credential" not in printed
