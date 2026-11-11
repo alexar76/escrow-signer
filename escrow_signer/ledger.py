@@ -262,6 +262,11 @@ class Ledger:
             self.db.execute("PRAGMA synchronous = FULL")
             self.db.execute("PRAGMA busy_timeout = 5000")
             self.db.executescript(SCHEMA)
+            # Additive: the signed transaction itself, so a broadcast that never reached a node
+            # can be sent again. Without it a 'signed' row was a permanent hole at its account
+            # nonce and every later debit queued behind it (audit 2026-11-11, escrow-3).
+            if "raw_tx" not in {r["name"] for r in self.db.execute("PRAGMA table_info(tx_attempt)")}:
+                self.db.execute("ALTER TABLE tx_attempt ADD COLUMN raw_tx TEXT NOT NULL DEFAULT ''")
             self.db.execute(
                 "INSERT OR IGNORE INTO clock_guard(id, max_ts, max_seq) VALUES (1, 0, 0)")
             for name in ("spend", "audit"):
@@ -832,14 +837,15 @@ class Ledger:
                    amount_units=row.amount_units, tx_hash=updates.get("tx_hash", row.tx_hash))
 
     @_serialized
-    def mark_signed(self, row: SpendRow, tx_hash: str, raw_keccak: str) -> None:
+    def mark_signed(self, row: SpendRow, tx_hash: str, raw_keccak: str, raw_tx: str = "") -> None:
         self._set_state(row, "signed", tx_hash=tx_hash)
         seq, ts = self.tick()
         self.db.execute(
             "INSERT OR REPLACE INTO tx_attempt(tx_hash, chain_id, escrow, receipt_id,"
-            " account_nonce, raw_keccak, max_fee_wei, sent_at, seq) VALUES (?,?,?,?,?,?,?,?,?)",
+            " account_nonce, raw_keccak, max_fee_wei, sent_at, seq, raw_tx)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?)",
             (tx_hash, row.chain_id, row.escrow, row.receipt_id, row.account_nonce,
-             raw_keccak, row.max_fee_wei, ts, seq))
+             raw_keccak, row.max_fee_wei, ts, seq, raw_tx))
 
     @_serialized
     def mark_broadcast(self, row: SpendRow, tx_hash: str) -> None:

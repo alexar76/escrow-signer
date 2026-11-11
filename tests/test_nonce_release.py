@@ -231,13 +231,34 @@ def test_an_unnamed_expire_simulation_error_releases_the_row_and_its_nonce(
 
 
 def test_a_signed_row_is_not_released_as_never_signed(signer):
-    """Boot leaves a broadcast-failed row alone: a node may still hold its transaction."""
+    """Boot never releases a broadcast-failed row: a node may still hold its transaction. Since
+    2026-11-11 boot sends that transaction again (it keeps the raw bytes), so the row moves on
+    to 'broadcast' with its own hash — still never 'dead', and its nonce is never reused."""
     signer.rpc.send_error = "unavailable"
     refused = signer.handle(envelope(sign_debit(signer, receipt=b"\x0a" * 32)))
     assert refused.reason_code == "broadcast_failed"
+    signed_hash = row_for(signer, refused).tx_hash
+    assert signed_hash
     signer.rpc.send_error = None
     signer.boot()
-    assert row_for(signer, refused).state == "signed"
+    row = row_for(signer, refused)
+    assert row.state == "broadcast"
+    assert row.tx_hash == signed_hash
+
+
+def test_a_failed_broadcast_is_sent_again_and_its_retry_gets_the_hash(signer):
+    """Audit 2026-11-11, escrow-3: a debit whose broadcast reached no node left a hole at its
+    account nonce; its retry got 409 for good and every later debit queued behind the hole."""
+    signer.rpc.send_error = "unavailable"
+    env = envelope(sign_debit(signer, receipt=b"\x0c" * 32))
+    refused = signer.handle(env)
+    assert refused.reason_code == "broadcast_failed"
+    signed_hash = row_for(signer, refused).tx_hash
+    signer.rpc.send_error = None
+    again = signer.handle(env)
+    assert again.status == 200 and again.body.get("replayed") is True
+    assert again.tx_hash == signed_hash
+    assert row_for(signer, refused).state == "broadcast"
 
 
 # ── never reuse a signed nonce ───────────────────────────────────────────────────────────

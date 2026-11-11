@@ -156,6 +156,33 @@ class PolicySigner:
             raise ChainUnverified("token decimals changed")
         self._chain_ok_until = self._clock() + cfg.CHAIN_CACHE_TTL_S
 
+    def _rebroadcast(self, row, attempts: list) -> bool:
+        """Send a signed row's own transaction again. True if a node accepted it.
+
+        A broadcast that failed (every endpoint rate-limited, the hot key short of gas) left the
+        row 'signed' at account nonce N with no way to send it again: only its hash was kept.
+        Every later debit was signed at N+1, N+2… and queued behind the hole for every channel
+        until an operator filled N by hand (audit 2026-11-11, escrow-3). The raw transaction is
+        kept now (tx_attempt.raw_tx); rows signed before that have none and are left as before.
+        """
+        for attempt in reversed(attempts):
+            raw_hex = str(attempt.get("raw_tx") or "")
+            if not raw_hex or attempt.get("account_nonce") != row.account_nonce:
+                continue
+            try:
+                self.rpc.send_raw(bytes.fromhex(raw_hex[2:] if raw_hex.startswith("0x") else raw_hex))
+            except Reverted as exc:
+                log.warning("rebroadcast of %s rejected: %s", attempt["tx_hash"], exc.name)
+                return False
+            except RpcUnavailable as exc:
+                log.warning("rebroadcast of %s failed, will retry: %s", attempt["tx_hash"], str(exc)[:200])
+                return False
+            self.ledger.mark_broadcast(row, attempt["tx_hash"])
+            log.info("reconcile: re-sent %s for receipt %s (account nonce %s)",
+                     attempt["tx_hash"], row.receipt_id, row.account_nonce)
+            return True
+        return False
+
     def _reconcile(self) -> bool:
         """Classify every live row from chain evidence. Never releases on an RPC error (R24)."""
         now = int(self._clock())
@@ -187,6 +214,11 @@ class PolicySigner:
                     landed = True
                     break
             if landed:
+                continue
+            if row.state == "signed" and self._rebroadcast(row, attempts) and now <= row.deadline:
+                # Sent again: it may land, and it holds its account nonce so the debits signed
+                # after it can mine. Past the deadline it still goes out (it reverts
+                # ChannelExpired, but closes the nonce gap) and the row is released below.
                 continue
             if row.state == "reserved" and not any(
                     a["account_nonce"] == row.account_nonce for a in attempts):
@@ -380,7 +412,7 @@ class PolicySigner:
             return _refuse(500, "signing_failed", **common)
         raw = bytes(getattr(signed, "raw_transaction", None) or signed.rawTransaction)
         tx_hash = "0x" + keccak(raw).hex()
-        self.ledger.mark_signed(row, tx_hash, "0x" + keccak(raw).hex())
+        self.ledger.mark_signed(row, tx_hash, "0x" + keccak(raw).hex(), raw_tx="0x" + raw.hex())
 
         try:
             broadcast_hash = self.rpc.send_raw(raw)
@@ -526,7 +558,7 @@ class PolicySigner:
             return _refuse(500, "signing_failed", **common)
         raw = bytes(getattr(signed, "raw_transaction", None) or signed.rawTransaction)
         tx_hash = "0x" + keccak(raw).hex()
-        self.ledger.mark_signed(row, tx_hash, tx_hash)
+        self.ledger.mark_signed(row, tx_hash, tx_hash, raw_tx="0x" + raw.hex())
 
         try:
             self.rpc.send_raw(raw)
@@ -646,7 +678,7 @@ class PolicySigner:
             return self._audit_sweep(_refuse(500, "signing_failed", **common))
         raw = bytes(getattr(signed, "raw_transaction", None) or signed.rawTransaction)
         tx_hash = "0x" + keccak(raw).hex()
-        self.ledger.mark_signed(row, tx_hash, tx_hash)
+        self.ledger.mark_signed(row, tx_hash, tx_hash, raw_tx="0x" + raw.hex())
         try:
             self.rpc.send_raw(raw)
         except Reverted as exc:
@@ -797,7 +829,9 @@ class PolicySigner:
             except (RpcUnavailable, Reverted):
                 return _refuse(409, "reserved_unresolved", **common)
             fresh = self.ledger.get(row.chain_id, row.escrow, row.receipt_id)
-            if fresh and fresh.state == "mined" and fresh.tx_hash:
+            if fresh and fresh.state in ("mined", "broadcast") and fresh.tx_hash:
+                # "broadcast": reconciliation just sent the stored transaction again; the hub
+                # gets its hash and confirms it like any other submission.
                 return Decision(status=200, body={"tx_hash": fresh.tx_hash, "replayed": True},
                                 decision="replayed", tx_hash=fresh.tx_hash, **common)
             if fresh and fresh.state == "dead":
@@ -822,6 +856,13 @@ def run_sweeps(signer: PolicySigner, lock, *, interval_s: int, first_delay_s: in
     while stop is None or not stop.is_set():
         try:
             with lock:
+                # Reconcile first: it re-sends signed transactions whose broadcast failed, so
+                # a nonce hole closes on its own instead of waiting for a hub to retry the
+                # same receipt (audit 2026-11-11, escrow-3).
+                try:
+                    signer._reconcile()
+                except (RpcUnavailable, Reverted) as exc:
+                    log.warning("reconcile before the sweep skipped: %s", type(exc).__name__)
                 signer.sweep_proceeds()
         except Exception:  # noqa: BLE001 - the loop must outlive one bad cycle
             log.exception("sweep cycle failed")
